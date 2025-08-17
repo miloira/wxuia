@@ -1,9 +1,13 @@
+import re
+
 import uiautomation as uia
 
+from utils import set_clipboard_text, set_clipboard_file
 
-class ProxySettingBackDialogWindow:
 
-    def __init__(self, parent: "ProxySettingsWindow"):
+class ProxySettingBackDialog:
+
+    def __init__(self, parent: "ProxySettings"):
         self.parent = parent
         self.window_control = self.parent.window_control.WindowControl(Name="Weixin", ClassName="mmui::XDialog")
         self.save_button = self.window_control.ButtonControl(Name="保存")
@@ -24,9 +28,9 @@ class ProxySettingBackDialogWindow:
         self.click(self.not_save_button)
 
 
-class ProxySettingsWindow:
+class ProxySettings:
 
-    def __init__(self, parent: "LoginWindow"):
+    def __init__(self, parent: "WechatLogin"):
         self.parent = parent
         self.window_control = self.parent.window_control
         self.tool_bar = self.parent.tool_bar
@@ -74,13 +78,13 @@ class ProxySettingsWindow:
 
     def back(self):
         self.click(self.back_button)
-        return ProxySettingBackDialogWindow(self)
+        return ProxySettingBackDialog(self)
 
     def close(self):
         self.click(self.close_button)
 
 
-class LoginWindow:
+class WechatLogin:
 
     def __init__(self):
         self.window_control = uia.WindowControl(Name="微信", ClassName="mmui::LoginWindow")
@@ -109,7 +113,7 @@ class LoginWindow:
 
     def open_proxy_settings(self):
         self.click(self.proxy_settings_button)
-        return ProxySettingsWindow(self)
+        return ProxySettings(self)
 
     def show(self):
         return self.window_control.Show()
@@ -118,12 +122,102 @@ class LoginWindow:
         return self.click(self.close_button)
 
 
-login_window = LoginWindow()
-proxy_settings_window = login_window.open_proxy_settings()
-proxy_settings_window.set_use_proxy(True)
-proxy_settings_window.set_address("address")
-proxy_settings_window.set_port("8080")
-proxy_settings_window.set_account("account")
-proxy_settings_window.set_passwprd("password")
-proxy_settings_back_dialog = proxy_settings_window.back()
-proxy_settings_back_dialog.not_save()
+class WeChat:
+
+    def __init__(self):
+        self.window = uia.WindowControl(RegexName="[Weixin|微信]")
+        self.search_edit = self.window.EditControl(Name="搜索")
+
+    def send(self, who, content, msg_type):
+        self.window.SetActive()
+        self.search_edit.SendKeys(who)
+        self.window.SendKeys("{Enter}")
+        chat_edit = self.window.EditControl(Name=who)
+        chat_edit.SendKeys("{Ctrl}a{Del}")
+
+        if msg_type == "text":
+            set_clipboard_text(content)
+        elif msg_type in ["image", "video", "file"]:
+            set_clipboard_file([content])
+
+        chat_edit.SendKeys("{Ctrl}v")
+        self.window.SendKeys("{Enter}")
+        self.window.ListControl(Name="消息").GetChildren()
+
+    def send_text(self, who, content):
+        return self.send(who, content, "text")
+
+    def send_typing_text(self, who, content, delay=0.01):
+        self.window.SetActive()
+        self.search_edit.SendKeys(who)
+        self.window.SendKeys("{Enter}")
+        chat_edit = self.window.EditControl(Name=who)
+        chat_edit.SendKeys("{Ctrl}a{Del}")
+        chat_edit.SendKeys(content, interval=delay)
+        self.window.SendKeys("{Enter}")
+
+    def send_image(self, who, image_path):
+        return self.send(who, image_path, "image")
+
+    def send_video(self, who, video_path):
+        return self.send(who, video_path, "video")
+
+    def send_file(self, who, file_path):
+        return self.send(who, file_path, "file")
+
+    def call(self, who, msg_type, members=None):
+        self.window.SetActive()
+        self.search_edit.SendKeys(who)
+        self.window.SendKeys("{Enter}")
+        tool_bar = self.window.ButtonControl(Name="发送(S)").GetParentControl().GetChildren()[0]
+        if msg_type == "private_voice":
+            tool_bar.ButtonControl(Name="语音聊天").Click()
+        elif msg_type == "room_voice":
+            tool_bar.ButtonControl(Name="多人通话").Click()
+            select_group_members_window = self.window.WindowControl(Name="微信选择成员")
+            select_member_text = select_group_members_window.TextControl(Name="选择成员")
+            finish_button = select_member_text.GetParentControl().GetChildren()[-1]
+            cancel_button = select_member_text.GetParentControl().GetChildren()[-2]
+
+            checkbox_list = select_group_members_window.ListControl(Name="请勾选需要添加的联系人").GetChildren()
+            for checkbox in checkbox_list:
+                if checkbox.Name in members:
+                    checkbox.Click()
+
+            selected_members_text = select_member_text.GetParentControl().GetChildren()[-3]
+            members_count = re.findall(r"已选择(\d+)个联系人", selected_members_text.Name)[0]
+            if members_count > 1:
+                finish_button.Click()
+            else:
+                raise Exception("至少选择2个联系人")
+        elif msg_type == "video_live":
+            tool_bar.ButtonControl(Name="视频号直播").Click()
+        elif msg_type == "video":
+            tool_bar.ButtonControl(Name="视频聊天").Click()
+
+    def call_voice(self, contact):
+        return self.call(contact, "voice")
+
+    def call_video(self, contact):
+        return self.call(contact, "video")
+
+    def call_room_voice(self, room, members):
+        return self.call(room, "room_voice", members)
+
+    def call_video_live(self, room):
+        return self.call(room, "video_live")
+
+
+if __name__ == '__main__':
+    # login_window = WechatLogin()
+    # proxy_settings_window = login_window.open_proxy_settings()
+    # proxy_settings_window.set_use_proxy(True)
+    # proxy_settings_window.set_address("address")
+    # proxy_settings_window.set_port("8080")
+    # proxy_settings_window.set_account("account")
+    # proxy_settings_window.set_passwprd("password")
+    # proxy_settings_back_dialog = proxy_settings_window.back()
+    # proxy_settings_back_dialog.not_save()
+
+    wechat = WeChat()
+    wechat.send_text("文件传输助手", "测试")
